@@ -1,4 +1,7 @@
 #include "configuration.h"
+#ifdef TRACKER_T1000_R
+#include "modules/GpsStoreForwardModule.h"
+#endif
 #if !MESHTASTIC_EXCLUDE_INPUTBROKER
 #include "buzz/BuzzerFeedbackThread.h"
 #include "modules/SystemCommandsModule.h"
@@ -188,6 +191,9 @@ void setupModules()
 #endif
     // Example: Put your module here
     // new ReplyModule();
+#ifdef TRACKER_T1000_R
+    gpsStoreForwardModule = new GpsStoreForwardModule();
+#endif
 #if HAS_SCREEN && !MESHTASTIC_EXCLUDE_CANNEDMESSAGES
     if (config.display.displaymode != meshtastic_Config_DisplayConfig_DisplayMode_COLOR) {
         cannedMessageModule = new CannedMessageModule();
