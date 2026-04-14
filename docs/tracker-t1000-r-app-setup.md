@@ -88,11 +88,16 @@ The firmware contains a custom `GpsStoreForwardModule` that writes every GPS fix
 
 ### 6.1 How Pairing Works
 
-1. The **gateway node** sends a `PAIR_REQUEST` packet (port 256, subtype `0x01`) to the T1000-R.
-2. The T1000-R responds with a `PAIR_ACK` (subtype `0x02`) and remembers the gateway's node ID and channel.
-3. From this point on the tracker exclusively targets that gateway for stored-fix delivery.
+**Simple method (recommended):** In the Meshtastic app on the gateway node, open the tracker channel and send the message `pair` (case-insensitive). The T1000-R will respond with a confirmation text message, e.g. `T1000-R paired. Stored fixes: 1234.`, and emit a short beep.
 
-Pairing requires a companion application or firmware on the gateway node that sends the `PAIR_REQUEST`. Until pairing occurs, fixes are stored in flash but not transmitted.
+**Programmatic method:** Send a 1-byte packet on **port 256** with payload byte `0x01` (`PAIR_REQUEST`). The T1000-R responds with a `PAIR_ACK` (subtype `0x02`) on the same port, plus the confirmation text message above.
+
+In both cases:
+
+- The T1000-R remembers the sending node as the gateway and begins replaying stored fixes.
+- Until pairing occurs, fixes are stored in flash but not transmitted.
+
+> **Tip:** If no confirmation text appears after sending `pair`, the message did not reach the T1000-R. Check that both devices share the same channel PSK and are within LoRa range.
 
 ### 6.2 Storage Capacity
 
@@ -112,6 +117,27 @@ When the buffer is full, the oldest fixes are overwritten. If the device is offl
 - The module waits up to **10 seconds** for a mesh-layer ACK before retrying.
 - Retries continue indefinitely — **no fix is ever discarded** due to failed delivery. If the gateway goes out of range mid-delivery, the module pauses and resumes from the same position when the gateway is heard again.
 - A gateway is considered "in range" if a packet from it has been heard within the last **10 minutes** (600 seconds).
+- When the last stored fix is delivered the T1000-R sends `T1000-R: all GPS fixes delivered.` to the gateway and emits a short beep.
+
+### 6.4 Querying the Fix Count
+
+Any node that shares a channel with the T1000-R can request a status report at any time — no pairing required.
+
+**Simple method (recommended):** In the Meshtastic app, open the tracker channel and send the message `status` (case-insensitive).
+
+**Programmatic method:** Send a 1-byte packet on **port 256** with payload byte `0x05` (subtype `STATUS_REQUEST`).
+
+**Response:** The T1000-R replies with a text message on the same channel, e.g.:
+
+```
+T1000-R: 720 fixes stored. Paired: yes. Delivering: no.
+```
+
+| Field          | Meaning                                             |
+| -------------- | --------------------------------------------------- |
+| `fixes stored` | Number of GPS records in flash not yet delivered    |
+| `Paired`       | Whether the device has an active gateway pairing    |
+| `Delivering`   | Whether a delivery session is currently in progress |
 
 ---
 
@@ -161,5 +187,6 @@ After completing the above steps, confirm the following:
 | No position packets visible anywhere                            | Channel 0 precision is 0; no private channel configured | Add private channel with precision > 0                                        |
 | Position visible on mesh but not in MQTT                        | Uplink not enabled on the private channel               | Enable uplink on the private channel on the gateway node                      |
 | MQTT receives packets but GPS store-and-forward does not replay | Gateway has not sent a `PAIR_REQUEST`                   | Ensure gateway firmware sends the pairing packet on port 256                  |
+| No status reply after sending `STATUS_REQUEST`                  | Packet not received by T1000-R                          | Confirm both nodes share the same channel PSK and are within LoRa range       |
 | No GPS fix acquired                                             | Cold start can take several minutes outdoors            | Leave the device in open sky; the GPS LED (if present) indicates fix acquired |
 | Battery drains faster than expected                             | Power saving mode not enabled                           | Enable power saving in Settings → Power                                       |

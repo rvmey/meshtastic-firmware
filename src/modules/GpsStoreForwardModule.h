@@ -16,10 +16,11 @@
 #define GSF_PORTNUM meshtastic_PortNum_PRIVATE_APP
 
 // Packet subtypes (first byte of payload)
-#define GSF_SUBTYPE_PAIR_REQUEST 0x01 // Gateway → Tracker: "pair with me"
-#define GSF_SUBTYPE_PAIR_ACK 0x02     // Tracker → Gateway: "paired"
-#define GSF_SUBTYPE_FIX_DATA 0x03     // Tracker → Gateway: one stored GPS fix
-#define GSF_SUBTYPE_FIX_ACK 0x04      // Gateway → Tracker: "fix received" (optional)
+#define GSF_SUBTYPE_PAIR_REQUEST 0x01   // Gateway → Tracker: "pair with me"
+#define GSF_SUBTYPE_PAIR_ACK 0x02       // Tracker → Gateway: "paired"
+#define GSF_SUBTYPE_FIX_DATA 0x03       // Tracker → Gateway: one stored GPS fix
+#define GSF_SUBTYPE_FIX_ACK 0x04        // Gateway → Tracker: "fix received" (optional)
+#define GSF_SUBTYPE_STATUS_REQUEST 0x05 // Any node → Tracker: request a status report
 
 // Ring-buffer capacity: 24 h × 720 fixes/h (one every 5 s) = 17 280 records
 #define GSF_MAX_RECORDS 17280U
@@ -28,10 +29,11 @@
 #define GSF_GATEWAY_TIMEOUT_SECS 600U
 
 // ACK wait before retrying a FIX_DATA packet (ms)
-#define GSF_ACK_TIMEOUT_MS 10000U
+#define GSF_ACK_TIMEOUT_MS 3000U
 
-// After this many retries without ACK, advance readHead and move on
-#define GSF_MAX_RETRIES 3U
+// Maximum fixes to send per batch (all but the last are fire-and-forget;
+// the last requests an ACK and gates readHead advancement)
+#define GSF_BATCH_SIZE 4U
 
 // Path constants
 #define GSF_LOG_FILE "/static/gpslog.bin"
@@ -82,10 +84,10 @@ class GpsStoreForwardModule : public MeshModule, private concurrency::OSThread
     // MeshModule interface
     // -------------------------------------------------------------------
 
-    /** Accept POSITION_APP (our own fixes), PRIVATE_APP (pairing), ROUTING_APP (ACKs) */
+    /** Accept PRIVATE_APP (pairing), ROUTING_APP (ACKs), TEXT_MESSAGE_APP (commands) */
     bool wantPacket(const meshtastic_MeshPacket *p) override;
 
-    /** Handle pairing, ACKs, and capture local position packets */
+    /** Handle pairing, ACKs, and text commands */
     ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
 
     // -------------------------------------------------------------------
@@ -132,6 +134,15 @@ class GpsStoreForwardModule : public MeshModule, private concurrency::OSThread
     /** Send a PAIR_ACK back to `dest` on `channel` */
     void sendPairAck(NodeNum dest, uint8_t channel);
 
+    /** Send a TEXT_MESSAGE_APP to `dest` on `channel` confirming pairing and pending fix count */
+    void sendPairingConfirmationText(NodeNum dest, uint8_t channel);
+
+    /** Send a TEXT_MESSAGE_APP to the gateway confirming all stored fixes have been delivered */
+    void sendDeliveryCompleteText();
+
+    /** Send a TEXT_MESSAGE_APP status report to `dest` on `channel` */
+    void sendStatusText(uint8_t channel);
+
     // -------------------------------------------------------------------
     // State
     // -------------------------------------------------------------------
@@ -143,11 +154,15 @@ class GpsStoreForwardModule : public MeshModule, private concurrency::OSThread
     PacketId pendingPacketId = 0;
     uint32_t pendingSentAt = 0;
     uint8_t retryCount = 0;
+    uint8_t pendingBatchSize = 0;    // fixes sent in the current in-flight batch
+    uint32_t deliveryTargetHead = 0; // writeHead snapshot taken when delivery begins
 
     uint32_t writeHead = 0;
     uint32_t readHead = 0;
 
     bool indexLoaded = false;
+    uint32_t lastStoredTimestamp = 0; // localPosition.time of last stored GPS fix
+    uint32_t lastStoredMs = 0;        // millis() of last stored fix (fallback when GPS time==0)
 };
 
 extern GpsStoreForwardModule *gpsStoreForwardModule;
